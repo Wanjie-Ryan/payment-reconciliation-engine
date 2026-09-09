@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --no-create-home --shell /usr/sbin/nologin appuser
-COPY --from=build /out/app /app
+COPY --from=build --chmod=755 /out/app /app
 USER appuser
 EXPOSE 8080
 ENTRYPOINT ["/app"]
