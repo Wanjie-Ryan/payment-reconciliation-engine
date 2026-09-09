@@ -1,0 +1,5 @@
+.git
+assets/
+*.md
+.env
+.env.docker
