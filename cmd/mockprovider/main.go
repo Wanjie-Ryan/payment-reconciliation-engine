@@ -1,4 +1,4 @@
-package mockprovider
+package main
 
 import (
 	"net/http"
