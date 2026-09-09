@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -83,7 +82,10 @@ func main() {
 	logsInit()
 
 	if err := godotenv.Load(); err != nil {
-		log.Fatalf("failed to load envs: " + err.Error())
+
+		logrus.WithFields(logrus.Fields{
+			"description": "no .env file found, relying on process environment",
+		}).Info("godotenv")
 	}
 
 	ctx := context.Background()
@@ -92,7 +94,7 @@ func main() {
 	if err != nil {
 		logrus.WithContext(ctx).WithFields(logrus.Fields{
 			"description": "failed to connect to DB",
-		}).Error(err.Error())
+		}).Fatal(err.Error())
 	}
 	defer pool.Close()
 
