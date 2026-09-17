@@ -16,4 +16,5 @@ RUN useradd --system --no-create-home --shell /usr/sbin/nologin appuser
 COPY --from=build --chmod=755 /out/app /app
 USER appuser
 EXPOSE 8080
+# port to expose via docker
 ENTRYPOINT ["/app"]
