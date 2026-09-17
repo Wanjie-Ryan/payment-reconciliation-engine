@@ -20,6 +20,7 @@ func logsInit() {
 // connectDB gets a Postgres connection pool
 func connectDB(ctx context.Context) (*pgxpool.Pool, error) {
 
+	// creds to connect to the DB
 	host := os.Getenv("DATABASE_HOST")
 	port := os.Getenv("DATABASE_PORT")
 	username := os.Getenv("DATABASE_USER")
