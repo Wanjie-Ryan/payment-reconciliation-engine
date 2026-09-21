@@ -141,4 +141,5 @@ router.go
 
 **clearing balance = -(total deposited) + (total withdrawn) = -(net money that flowed in from M-Pesa)**
 
-
+- **Domain Layer** 
+- pure Go describing what a transaction, an account, and money actually are, and what makes them valid, with ZERO knowledge of Postgres, HTTP, or Docker

@@ -2,3 +2,5 @@
 .env.docker
 bin/
 *.log
+docker exec -it payment-reconciliation-engine-postgres-1 psql -U ledger_app -d ledger
+\dt 

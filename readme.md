@@ -105,7 +105,7 @@ public internet regardless of what UFW reports.
 
 1. [x] Docker infrastructure — Postgres + app + mock-provider containers,
    healthchecks, no domain code.
-2. [ ] Postgres schema + migrations.
+2. [x] Postgres schema + migrations.
 3. [ ] Domain layer (entities, `Money`, `Transaction` aggregate root,
    repository interfaces).
 4. [ ] Core ledger use cases (Deposit/Withdraw/Transfer) end to end.
@@ -144,4 +144,52 @@ Verified on the VPS:
 ```
 curl http://127.0.0.1:8081/health   # {"status":"ok"}
 curl http://127.0.0.1:8082/health   # {"service":"mock-payment-provider","status":"ok"}
+```
+
+### Phase 2 — Postgres schema + migrations (2026-09-21)
+
+Six tables (`accounts`, `transactions`, `entries`, `events`,
+`provider_statement_lines`, `discrepancies`) plus a `transaction_status`
+ENUM, `gen_random_uuid()` for PKs, `JSONB` for the event payload,
+`TIMESTAMPTZ` throughout. Migrations run via `golang-migrate`
+(`pgx/v5` driver, avoids pulling in `lib/pq` as a second Postgres driver
+family) embedded in the same binary as the server, gated by a `SETUP_TYPE`
+env var — same pattern as `identity-service`. `docker-compose.yml` runs it
+as a one-shot `migrate` service (`SETUP_TYPE=cronjob`, `restart: "no"`)
+that `app` waits on via `depends_on: condition: service_completed_successfully`,
+so migrations always apply before the server starts, with no manual step
+and no separate migration CLI in the image.
+
+**Two bugs caught in review before this ever touched the VPS:**
+
+1. `cmd/server/main.go` was missing two blank imports —
+   `_ "github.com/jackc/pgx/v5/stdlib"` (registers the `"pgx"` driver
+   `database/sql` needs for `sql.Open`) and
+   `_ "github.com/golang-migrate/migrate/v4/source/file"` (registers the
+   `file://` source golang-migrate needs to read `.sql` files off disk).
+   Both are the kind of import that compiles fine and only fails at
+   runtime — `sql: unknown driver "pgx"` — so it wouldn't have shown up
+   until the migration actually tried to run.
+2. The Dockerfile's `COPY migrations /migrations` referenced a folder
+   named `migrations` (plural); the one on disk was `migration`
+   (singular). Would have failed the image build outright with
+   `COPY failed: file not found`. Fixed by renaming the folder to match
+   the convention the Dockerfile and `file:///migrations` URL both
+   already assumed.
+
+Verified on the VPS:
+```
+$ docker compose ps
+app            Up (healthy dependency chain: postgres → migrate → app)
+migrate        Exited (0)
+postgres       Up (healthy)
+
+$ psql -U ledger_app -d ledger -c '\dt'
+accounts | discrepancies | entries | events | provider_statement_lines
+| schema_migrations | transactions   (7 rows)
+
+$ psql -U ledger_app -d ledger -c 'select * from schema_migrations;'
+ version | dirty
+---------+-------
+       1 | f
 ```
