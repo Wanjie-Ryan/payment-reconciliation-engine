@@ -65,16 +65,20 @@
 ![mock provider](assets/mock-provider.png)
 
 # Clean Architecture in a nutshell but Domain Driven Design heavy
+
 1. **Layered Architecture**
+
 - Whatever I use in the Go projects. Everything HTTP related lives in controllers/ everything DB-related lives in database/ regardless of which business feature it belongs to.
 
 2. **Repository Pattern**
 
 3. **Command Query Responsibility Segregation (CQRS)**
+
 - separate models for writing vs reading data.
 
 4. **Domain Driven Design (DDD)**
-- About where the complexity actually lives. 
+
+- About where the complexity actually lives.
 - The hard part about the software isn't the framework, DB or HTTP layer, those are solved problems, its correctly modelling the business rules themselves.
 - So DDD organizes code around business capabilities (ledger, reconciliation) rather than technical layers (controllers, models), and keeping business logic completely ignorant of HTTP, Postgres, or any other technical detail.
 - The DB doesn't know its a ledger, the ledger domain shouldn't know its Postgres.
@@ -84,20 +88,51 @@
 /cmd/server/main.go
 
 /internal/
-  /ledger/
-    entity.go        # Account, Entry, Transaction — the actual domain model
-    repository.go    # interface LedgerRepository { Save(...), GetBalance(...) }
-    service.go        # use cases: Deposit, Withdraw, Transfer
+/ledger/
+entity.go # Account, Entry, Transaction — the actual domain model
+repository.go # interface LedgerRepository { Save(...), GetBalance(...) }
+service.go # use cases: Deposit, Withdraw, Transfer
 
-  /reconciliation/
-    entity.go
-    service.go        # compares internal ledger vs provider statement
+/reconciliation/
+entity.go
+service.go # compares internal ledger vs provider statement
 
-  /postgres/
-    ledger_repository.go   # implements ledger.LedgerRepository
+/postgres/
+ledger_repository.go # implements ledger.LedgerRepository
 
-  /http/
-    ledger_handler.go      # translates HTTP <-> ledger.Service calls
-    router.go
+/http/
+ledger_handler.go # translates HTTP <-> ledger.Service calls
+router.go
 
 /migrations/
+
+# Single, Double, Triple Entry
+
+- Just to clear the air up, these are the designs you deliberately choose, they are design methods.
+
+- Idempotency on the other hand prevents **duplicate transaction** the same logical event (a webhook redelivered, client retrying a timed out request) getting processed twice, creating two separate transactions where one should exist.
+
+1. Single Entry
+
+- One record per transaction, no self check
+
+- A plain list "received 100", "paid 50". No debit or credit, no structural way to cross check anything.
+- Its what a personal budget or simple cash notebook does. Its less rigorous compared to others
+
+2. Double Entry
+
+- Debit + credit, must balance out
+
+- Every transaction gets a debit and credit that MUST sum to 0.
+
+3. Triple Entry
+
+- Double Entry + shared signed receipt (blockchain-adjacent)
+
+- Adds a 3rd element on top of double-entry; a shared, cryptograhpically signed receipt that both parties hold identically, so the transaction itself becomes tamper-evident and independently verifiable, rather than each side just trusting their own private books. Concept for blockchain accounting.
+
+![webhook vs reconciliation poll](assets/webhook_vs_reconciliation_poll.png)
+
+- How data moves between the two services: the mock provider pushes state changes to the ledger service asynchronously via webhook (fire-and-forget, so it needs retry/dedupe handling on the ledger side), while the reconciliation engine pulls data by periodically GET-polling the mock provider's statement endpoint to compare against internal ledger state and surface discrepancies.
+
+
