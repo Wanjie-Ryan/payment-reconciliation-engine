@@ -135,4 +135,6 @@ router.go
 
 - How data moves between the two services: the mock provider pushes state changes to the ledger service asynchronously via webhook (fire-and-forget, so it needs retry/dedupe handling on the ledger side), while the reconciliation engine pulls data by periodically GET-polling the mock provider's statement endpoint to compare against internal ledger state and surface discrepancies.
 
+- The mock service only work is send data via the webhook to the ledger and provide the statements to the ledger when probed via GET request.
+
 
