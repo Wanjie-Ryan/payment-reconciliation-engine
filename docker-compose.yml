@@ -22,6 +22,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      provenance: false
     env_file:
       - .env.docker
     environment:
@@ -36,6 +37,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      provenance: false
     restart: unless-stopped
     env_file:
       - .env.docker
@@ -53,6 +55,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.mockprovider
+      provenance: false
     restart: unless-stopped
     env_file:
       - .env.docker
