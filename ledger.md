@@ -137,4 +137,8 @@ router.go
 
 - The mock service only work is send data via the webhook to the ledger and provide the statements to the ledger when probed via GET request.
 
+- Clearing Balance is the -ve of net inflow, every deposit subtracts from clearing **SUBTRACTS** from clearing (money flows out of the boundary, into a user), every withdrawal adds back to it.
+
+**clearing balance = -(total deposited) + (total withdrawn) = -(net money that flowed in from M-Pesa)**
+
 

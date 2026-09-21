@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
@@ -15,6 +20,52 @@ import (
 
 func logsInit() {
 	logrus.SetFormatter(&logrus.JSONFormatter{})
+}
+
+func buildDSN() string {
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		os.Getenv("DATABASE_USER"),
+		os.Getenv("DATABASE_PASSWORD"),
+		os.Getenv("DATABASE_HOST"),
+		os.Getenv("DATABASE_PORT"),
+		os.Getenv("DATABASE_NAME"),
+	)
+}
+
+func performMigration() {
+
+	logrus.WithFields(logrus.Fields{"description": "starting migration"}).Info("performing Migration")
+
+	db, err := sql.Open("pgx", buildDSN())
+
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"description": "failed to open DB for migration"}).Fatal(err.Error())
+	}
+
+	defer db.Close()
+
+	driver, err := migratepgx.WithInstance(db, &migratepgx.Config{})
+
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"description": "failed to init migration driver",
+		}).Fatal(err.Error())
+	}
+
+	m, err := migrate.NewWithDatabaseInstance("file:///migrations", "pgx5", driver)
+
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"description": "failed to init migrate instance"}).Fatal(err.Error())
+	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"description": "migration failed",
+		}).Fatal(err.Error())
+	}
+
+	logrus.WithFields(logrus.Fields{"description": "migrations applied successfully"}).Info("perform migrations")
+
 }
 
 // connectDB gets a Postgres connection pool
@@ -87,6 +138,16 @@ func main() {
 		logrus.WithFields(logrus.Fields{
 			"description": "no .env file found, relying on process environment",
 		}).Info("godotenv")
+	}
+
+	setupType := os.Getenv("SETUP_TYPE")
+	if setupType == "" {
+		setupType = "all"
+	}
+
+	if setupType == "cronjob" {
+		performMigration()
+		return
 	}
 
 	ctx := context.Background()

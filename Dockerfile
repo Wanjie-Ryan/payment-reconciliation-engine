@@ -1,5 +1,5 @@
-# ---- build stage ----
 # syntax=docker/dockerfile:1
+# ---- build stage ----
 FROM golang:1.25-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -7,14 +7,15 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/app ./cmd/server
 
-# ---- runtime stages ----
+# ---- runtime stage ----
 FROM debian:12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --no-create-home --shell /usr/sbin/nologin appuser
-COPY --from=build --chmod=755 /out/app /app
+COPY --from=build /out/app /app
+RUN chmod 755 /app
+COPY migrations /migrations
 USER appuser
 EXPOSE 8080
-# port to expose via docker
 ENTRYPOINT ["/app"]
