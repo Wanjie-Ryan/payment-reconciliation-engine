@@ -1,7 +1,6 @@
 package ledger
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -16,6 +15,8 @@ const (
 	StatusFailed  TransactionStatus = "failed"
 )
 
+var ExternalAccountID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
 // transactions owns its entries and is the only thing that can create them
 
 type Transaction struct {
@@ -27,21 +28,44 @@ type Transaction struct {
 	createdAt      time.Time
 }
 
+// NewTransfer moves money btn 2 internal accounts. Nothing external has to confirm it, so it is settled immediately
+
+func NewTransfer(fromAccountID, toAccountID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
+	if fromAccountID == ExternalAccountID || toAccountID == ExternalAccountID {
+		return nil, fmt.Errorf("%w: the external account cannot be used in a transfer", ErrInvalid)
+	}
+
+	return newTransaction("transfer", StatusSettled, fromAccountID, toAccountID, amount, idempotencyKey)
+}
+
+// NewDeposit brings money in from outside the ledger. it starts pending: a payment provider has to confirm it
+
+func NewDeposit(toAccountID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
+	return newTransaction("deposit", StatusPending, ExternalAccountID, toAccountID, amount, idempotencyKey)
+}
+
+// sends money out of the ledger. Statuspending until confirmed
+func NewWithdrawal(fromAccountID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
+	return newTransaction("withdrawal", StatusPending, fromAccountID, ExternalAccountID, amount, idempotencyKey)
+}
+
 // NewTransfer builds a balanced two-entry Transaction moving money from one account to another.
 // debit (-ve) on source, credit (+ve) on destination, so that they can sum to 0
 
-func NewTransfer(fromAccountID, toAccountID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
+func newTransaction(txType string, status TransactionStatus, fromAccountID, toAccountID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
 	if idempotencyKey == "" {
-		return nil, errors.New("ledger: idempotency key is required")
+		return nil, fmt.Errorf("%w: ledger-newTransaction - idempotency key is required", ErrInvalid)
 
 	}
 
 	if fromAccountID == toAccountID {
-		return nil, errors.New("ledger: cannot transfer to the same account")
+		return nil, fmt.Errorf("%w: ledger-newTransaction - source and destination account are the same", ErrInvalid)
+
 	}
 
-	if amount.isZero() {
-		return nil, errors.New("ledger: transfer amount must be non-zero")
+	if !amount.IsPositive() {
+		return nil, fmt.Errorf("%w: ledger-newTransaction - amount must be greater than zero", ErrInvalid)
+
 	}
 
 	txnID := uuid.New()
@@ -49,8 +73,8 @@ func NewTransfer(fromAccountID, toAccountID uuid.UUID, amount Money, idempotency
 	txn := &Transaction{
 		id:             txnID,
 		idempotencyKey: idempotencyKey,
-		txType:         "transfer",
-		status:         StatusPending,
+		txType:         txType,
+		status:         status,
 		entries: []Entry{
 			newEntry(txnID, fromAccountID, amount.Negate()),
 			newEntry(txnID, toAccountID, amount),

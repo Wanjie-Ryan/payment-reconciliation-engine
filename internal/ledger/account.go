@@ -1,7 +1,8 @@
 package ledger
 
 import (
-	"errors"
+	// "errors"
+	"fmt"
 
 	"github.com/google/uuid"
 )
@@ -15,14 +16,18 @@ type Account struct {
 
 func NewAccount(owner, currency string) (*Account, error) {
 	if owner == "" {
-		return nil, errors.New("ledger: owner is required")
+		return nil, fmt.Errorf("%w: ledger - owner is required", ErrInvalid)
 	}
 
 	if currency == "" {
-		return nil, errors.New("ledger: currency is required")
+		return nil, fmt.Errorf("%w: ledger - currency is required", ErrInvalid)
 	}
 	return &Account{id: uuid.New(), owner: owner, currency: currency}, nil
 
+}
+
+func RehydrateAccount(id uuid.UUID, owner, currency string) *Account{
+	return &Account{id: id, owner: owner, currency: currency}
 }
 
 func (a *Account) ID() uuid.UUID    { return a.id }

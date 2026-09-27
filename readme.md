@@ -106,7 +106,7 @@ public internet regardless of what UFW reports.
 1. [x] Docker infrastructure — Postgres + app + mock-provider containers,
    healthchecks, no domain code.
 2. [x] Postgres schema + migrations.
-3. [ ] Domain layer (entities, `Money`, `Transaction` aggregate root,
+3. [x] Domain layer (entities, `Money`, `Transaction` aggregate root,
    repository interfaces).
 4. [ ] Core ledger use cases (Deposit/Withdraw/Transfer) end to end.
 5. [ ] Idempotency.
@@ -193,3 +193,21 @@ $ psql -U ledger_app -d ledger -c 'select * from schema_migrations;'
 ---------+-------
        1 | f
 ```
+
+### Phase 3 — Domain layer (2026-09-26)
+
+Pure Go in `internal/ledger/`, no framework or database imports:
+`Money` (value object, minor units + currency), `Account` (entity),
+`Entry` (immutable, unexported constructor), `Transaction` (aggregate
+root), and the repository *interfaces* (implemented later by
+`internal/postgres`).
+
+Deliberate departures from the house style, because DDD needs them:
+- Domain types use **unexported fields + getter methods**, not exported
+  fields with JSON tags. That is what makes "entries always sum to zero"
+  a compile-time guarantee: no package outside `ledger` can build an
+  `Entry` or mutate a `Transaction`'s entries. Exported JSON structs
+  return at the HTTP boundary, as DTOs.
+- **No logging inside the domain types.** Logging starts at the
+  service and repository layers, where operations actually happen.
+- Tests are deliberately deferred until the project is complete.
