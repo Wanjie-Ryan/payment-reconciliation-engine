@@ -59,6 +59,7 @@ func (r *AccountRepository) FindByID(ctx context.Context, id uuid.UUID) (*ledger
 func (r *AccountRepository) GetBalance(ctx context.Context, id uuid.UUID) (int64, error) {
 	var balance int64
 
+	// COALESCE retuens the first non-NULL argument. Sum over zero returns NULL, not 0.
 	err := r.pool.QueryRow(ctx, `SELECT COALESCE(SUM(e.amount), 0)::BIGINT FROM entries e JOIN transactions t ON t.id = e.transaction_id WHERE e.account_id = $1 AND t.status <> 'failed'`, id).Scan(&balance)
 
 	if err != nil {
