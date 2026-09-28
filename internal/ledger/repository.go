@@ -12,7 +12,7 @@ import (
 type TransactionRepository interface {
 	// saves and writes the transaction and all of its entries atomically
 	Save(ctx context.Context, txn *Transaction) error
-	FindByIdempotencyKey(ctx context.Context, key string) (*Transaction, error)
+	// FindByIdempotencyKey(ctx context.Context, key string) (*Transaction, error)
 }
 
 type AccountRepository interface {

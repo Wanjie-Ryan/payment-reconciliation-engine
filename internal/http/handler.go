@@ -128,3 +128,90 @@ func (h *Handler) createAccount(c echo.Context) error {
 	})
 
 }
+
+func (h *Handler) getAccount(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+
+	if err != nil {
+		return badRequest(c, "invalid account id", err)
+	}
+
+	account, balance, err := h.ledger.GetAccount(c.Request().Context(), id)
+	if err != nil {
+		return respondError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, AccountResponse{
+		ID: account.ID(), Owner: account.Owner(), Currency: account.Currency(), Balance: balance.Amount(),
+	})
+
+}
+
+func (h *Handler) deposit(c echo.Context) error {
+	var req SingleAccountRequest
+
+	if err := c.Bind(&req); err != nil {
+		return badRequest(c, "invalid request body", err)
+	}
+
+	amount, err := ledger.NewMoney(req.Amount, req.Currency)
+
+	if err != nil {
+		return respondError(c, err)
+	}
+
+	txn, err := h.ledger.Deposit(c.Request().Context(), req.AccountID, amount, idempotencyKey(c))
+
+	if err != nil {
+		return respondError(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toTransactionResponse(txn))
+
+}
+
+func (h *Handler) withdraw(c echo.Context) error {
+	var req SingleAccountRequest
+
+	if err := c.Bind(&req); err != nil {
+		return badRequest(c, "invalid request body", err)
+	}
+
+	amount, err := ledger.NewMoney(req.Amount, req.Currency)
+
+	if err != nil {
+		return respondError(c, err)
+	}
+
+	txn, err := h.ledger.Withdraw(c.Request().Context(), req.AccountID, amount, idempotencyKey(c))
+
+	if err != nil {
+		return respondError(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toTransactionResponse(txn))
+
+}
+
+func (h *Handler) transfer(c echo.Context) error {
+	var req TransferRequest
+
+	if err := c.Bind(&req); err != nil {
+		return badRequest(c, "invalid request body", err)
+	}
+
+	amount, err := ledger.NewMoney(req.Amount, req.Currency)
+
+	if err != nil {
+		return respondError(c, err)
+	}
+
+	txn, err := h.ledger.Transfer(c.Request().Context(), req.FromAccountID, req.ToAccountID, amount, idempotencyKey(c))
+
+	if err != nil {
+		return respondError(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, toTransactionResponse(txn))
+
+}

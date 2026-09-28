@@ -11,11 +11,15 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
+
+	ledgerhttp "github.com/Wanjie-Ryan/payment-reconciliation-engine/internal/http"
+	"github.com/Wanjie-Ryan/payment-reconciliation-engine/internal/ledger"
+	"github.com/Wanjie-Ryan/payment-reconciliation-engine/internal/postgres"
 )
 
 func logsInit() {
@@ -163,6 +167,12 @@ func main() {
 	e := echo.New()
 	e.HideBanner = true
 	e.Use(loggingMiddleware)
+
+	ledgerService := ledger.NewLedgerService(
+		postgres.NewAccountRepository(pool),
+		postgres.NewTransactionRepository(pool),
+	)
+	ledgerhttp.RegisterRoutes(e, ledgerService)
 
 	e.GET("/health", func(c echo.Context) error {
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
