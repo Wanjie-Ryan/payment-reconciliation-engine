@@ -65,7 +65,7 @@ type TransactionResponse struct {
 	Type           string          `json:"type"`
 	Status         string          `json:"status"`
 	IdempotencyKey string          `json:"idempotency_key"`
-	Entries        []EntryResponse `json:"entries`
+	Entries        []EntryResponse `json:"entries"`
 	CreatedAt      time.Time       `json:"created_at"`
 }
 
