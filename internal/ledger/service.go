@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -84,12 +85,12 @@ func (s *LedgerService) GetAccount(ctx context.Context, id uuid.UUID) (*Account,
 
 }
 
-func (s *LedgerService) Transfer (ctx context.Context, fromID, toID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error){
+func (s *LedgerService) Transfer(ctx context.Context, fromID, toID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
 	txn, err := NewTransfer(fromID, toID, amount, idempotencyKey)
 
-	if err !=nil{
+	if err != nil {
 		logFailure(ctx, "invalid Transfer", err, logrus.Fields{
-			"from_account_id": fromID, "to_account_ID": toID, "idempotency_key":idempotencyKey,
+			"from_account_id": fromID, "to_account_ID": toID, "idempotency_key": idempotencyKey,
 		})
 		return nil, err
 	}
@@ -98,9 +99,9 @@ func (s *LedgerService) Transfer (ctx context.Context, fromID, toID uuid.UUID, a
 
 }
 
-func (s *LedgerService) Deposit(ctx context.Context, toID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error){
+func (s *LedgerService) Deposit(ctx context.Context, toID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
 	txn, err := NewDeposit(toID, amount, idempotencyKey)
-	if err !=nil{
+	if err != nil {
 		logFailure(ctx, "invalid deposit", err, logrus.Fields{
 			"account_id": toID, "idempotency_key": idempotencyKey,
 		})
@@ -109,8 +110,50 @@ func (s *LedgerService) Deposit(ctx context.Context, toID uuid.UUID, amount Mone
 	return s.post(ctx, txn)
 }
 
-
-func (s *LedgerService) Withdraw (ctx context.Context, fromID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error){
+func (s *LedgerService) Withdraw(ctx context.Context, fromID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
 	txn, err := NewWithdrawal(fromID, amount, idempotencyKey)
-	
+	if err != nil {
+		logFailure(ctx, "invalid withdrawal", err, logrus.Fields{
+			"account_id": fromID, "idempotency_key": idempotencyKey,
+		})
+		return nil, err
+	}
+	return s.post(ctx, txn)
+}
+
+func (s *LedgerService) post(ctx context.Context, txn *Transaction) (*Transaction, error) {
+	fields := logrus.Fields{
+		"transaction_id":  txn.ID(),
+		"type":            txn.Type(),
+		"idempotency_key": txn.IdempotencyKey(),
+	}
+
+	for _, e := range txn.Entries() {
+		account, err := s.accounts.FindByID(ctx, e.AccountID())
+		if err != nil {
+			logFailure(ctx, "failed to load account", err, fields)
+			return nil, err
+		}
+
+		if account.Currency() != e.Amount().Currency() {
+
+			err := fmt.Errorf("%w: account %s holds %s but the transaction is in %s", ErrInvalid, account.ID(), account.Currency(), e.Amount().Currency())
+
+			logFailure(ctx, "currenct mismatch", err, fields)
+			return nil, err
+
+		}
+
+	}
+
+	if err := s.transactions.Save(ctx, txn); err != nil {
+		logFailure(ctx, "failed to save transaction", err, fields)
+		return nil, err
+	}
+
+	fields["description"] = "transaction posted"
+	fields["status"] = txn.Status()
+	logrus.WithContext(ctx).WithFields(fields).Info("transaction posted")
+	return txn, nil
+
 }
