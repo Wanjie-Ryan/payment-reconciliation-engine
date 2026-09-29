@@ -2,9 +2,7 @@ package http
 
 import (
 	"errors"
-	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -94,6 +92,10 @@ func respondError(c echo.Context, err error) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	case errors.Is(err, ledger.ErrAccountNotFound):
 		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+	case errors.Is(err, ledger.ErrInsufficientFunds):
+		return c.JSON(http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+	case errors.Is(err, ledger.ErrRetry):
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 
@@ -156,10 +158,6 @@ func (h *Handler) deposit(c echo.Context) error {
 		return badRequest(c, "invalid request body", err)
 	}
 
-	newCurrency := strings.ToUpper(req.Currency)
-
-	log.Printf(newCurrency)
-
 	amount, err := ledger.NewMoney(req.Amount, req.Currency)
 
 	if err != nil {
@@ -182,10 +180,6 @@ func (h *Handler) withdraw(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return badRequest(c, "invalid request body", err)
 	}
-
-	newCurrency := strings.ToUpper(req.Currency)
-
-	log.Printf(newCurrency)
 
 	amount, err := ledger.NewMoney(req.Amount, req.Currency)
 

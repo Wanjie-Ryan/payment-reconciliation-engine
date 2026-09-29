@@ -14,6 +14,7 @@ package ledger
 import (
 	// "errors"
 	"fmt"
+	"strings"
 )
 
 // money is a value object and has no identity (ID) - two money values with the same fields are simply equal, hence its just a plain comparable struct
@@ -26,6 +27,7 @@ type Money struct {
 // constructor
 
 func NewMoney(amount int64, currency string) (Money, error) {
+	currency = strings.ToUpper(strings.TrimSpace(currency))
 	if currency == "" {
 		// the message is prefixed with ledger: makes the error traceable across the package that produced the logs.
 		return Money{}, fmt.Errorf("%w: ledger - currency is required", ErrInvalid)

@@ -23,7 +23,7 @@ func logFailure(ctx context.Context, description string, err error, fields logru
 
 	fields["description"] = description
 	entry := logrus.WithContext(ctx).WithError(err).WithFields(fields)
-	if errors.Is(err, ErrInvalid) || errors.Is(err, ErrAccountNotFound) {
+	if errors.Is(err, ErrInvalid) || errors.Is(err, ErrAccountNotFound) || errors.Is(err, ErrInsufficientFunds) || errors.Is(err, ErrRetry) {
 		entry.Warn(err.Error())
 		return
 	}
