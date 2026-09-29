@@ -2,7 +2,9 @@ package http
 
 import (
 	"errors"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -154,6 +156,10 @@ func (h *Handler) deposit(c echo.Context) error {
 		return badRequest(c, "invalid request body", err)
 	}
 
+	newCurrency := strings.ToUpper(req.Currency)
+
+	log.Printf(newCurrency)
+
 	amount, err := ledger.NewMoney(req.Amount, req.Currency)
 
 	if err != nil {
@@ -176,6 +182,10 @@ func (h *Handler) withdraw(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return badRequest(c, "invalid request body", err)
 	}
+
+	newCurrency := strings.ToUpper(req.Currency)
+
+	log.Printf(newCurrency)
 
 	amount, err := ledger.NewMoney(req.Amount, req.Currency)
 
