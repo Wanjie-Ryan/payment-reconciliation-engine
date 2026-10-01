@@ -20,6 +20,8 @@ import (
 	ledgerhttp "github.com/Wanjie-Ryan/payment-reconciliation-engine/internal/http"
 	"github.com/Wanjie-Ryan/payment-reconciliation-engine/internal/ledger"
 	"github.com/Wanjie-Ryan/payment-reconciliation-engine/internal/postgres"
+	"github.com/Wanjie-Ryan/payment-reconciliation-engine/internal/providerclient"
+	"github.com/Wanjie-Ryan/payment-reconciliation-engine/internal/reconciliation"
 )
 
 func logsInit() {
@@ -168,11 +170,33 @@ func main() {
 	e.HideBanner = true
 	e.Use(loggingMiddleware)
 
+	providerClient := providerclient.New(os.Getenv("MOCK_PROVIDER_URL"))
+
+	transactionRepo := postgres.NewTransactionRepository(pool)
+
 	ledgerService := ledger.NewLedgerService(
 		postgres.NewAccountRepository(pool),
-		postgres.NewTransactionRepository(pool),
+		transactionRepo,
+		providerClient,
 	)
 	ledgerhttp.RegisterRoutes(e, ledgerService)
+
+	gracePeriod, err := time.ParseDuration(os.Getenv("RECONCILIATION_GRACE_PERIOD"))
+	if err != nil {
+		gracePeriod = 30 * time.Second
+	}
+
+	reconciliationService := reconciliation.NewService(
+		postgres.NewStatementLineRepository(pool),
+		postgres.NewDiscrepancyRepository(pool),
+		transactionRepo,
+		transactionRepo,
+		gracePeriod,
+	)
+	ledgerhttp.RegisterWebhookRoutes(e, reconciliationService)
+
+	replayService := ledger.NewReplayService(postgres.NewEventRepository(pool), postgres.NewAccountRepository(pool))
+	ledgerhttp.RegisterAdminRoutes(e, replayService, reconciliationService)
 
 	e.GET("/health", func(c echo.Context) error {
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)

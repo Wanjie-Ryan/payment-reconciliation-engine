@@ -12,10 +12,11 @@ import (
 type LedgerService struct {
 	accounts     AccountRepository
 	transactions TransactionRepository
+	provider     PaymentProviderClient
 }
 
-func NewLedgerService(accounts AccountRepository, transactions TransactionRepository) *LedgerService {
-	return &LedgerService{accounts: accounts, transactions: transactions}
+func NewLedgerService(accounts AccountRepository, transactions TransactionRepository, provider PaymentProviderClient) *LedgerService {
+	return &LedgerService{accounts: accounts, transactions: transactions, provider: provider}
 }
 
 // logFailure logs expected failures (bad input, unknown account) as warnings and everything else as errors
@@ -99,7 +100,7 @@ func (s *LedgerService) Transfer(ctx context.Context, fromID, toID uuid.UUID, am
 
 }
 
-func (s *LedgerService) Deposit(ctx context.Context, toID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, bool, error) {
+func (s *LedgerService) Deposit(ctx context.Context, toID uuid.UUID, amount Money, idempotencyKey, behavior string) (*Transaction, bool, error) {
 	txn, err := NewDeposit(toID, amount, idempotencyKey)
 	if err != nil {
 		logFailure(ctx, "invalid deposit", err, logrus.Fields{
@@ -107,7 +108,23 @@ func (s *LedgerService) Deposit(ctx context.Context, toID uuid.UUID, amount Mone
 		})
 		return nil, false, err
 	}
-	return s.post(ctx, txn)
+	// return s.post(ctx, txn)
+
+	result, replayed, err := s.post(ctx, txn)
+
+	if err != nil || replayed {
+		return result, replayed, err
+	}
+
+	if err := s.provider.InitiateCharge(ctx, result.IdempotencyKey(), amount, behavior); err != nil {
+		logFailure(ctx, "failed to intiate provider charge", err, logrus.Fields{
+			"transaction_id":  result.ID(),
+			"idempotency_key": result.IdempotencyKey(),
+		})
+	}
+
+	return result, replayed, nil
+
 }
 
 func (s *LedgerService) Withdraw(ctx context.Context, fromID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, bool, error) {

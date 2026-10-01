@@ -46,6 +46,7 @@ type SingleAccountRequest struct {
 	AccountID uuid.UUID `json:"account_id"`
 	Amount    int64     `json:"amount"`
 	Currency  string    `json:"currency"`
+	Behavior  string    `json:"behavior,omitempty"`
 }
 
 type TransferRequest struct {
@@ -174,7 +175,7 @@ func (h *Handler) deposit(c echo.Context) error {
 		return respondError(c, err)
 	}
 
-	txn, replayed, err := h.ledger.Deposit(c.Request().Context(), req.AccountID, amount, idempotencyKey(c))
+	txn, replayed, err := h.ledger.Deposit(c.Request().Context(), req.AccountID, amount, idempotencyKey(c), req.Behavior)
 
 	if err != nil {
 		return respondError(c, err)

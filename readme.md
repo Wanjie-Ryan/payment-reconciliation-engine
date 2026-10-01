@@ -108,11 +108,11 @@ public internet regardless of what UFW reports.
 2. [x] Postgres schema + migrations.
 3. [x] Domain layer (entities, `Money`, `Transaction` aggregate root,
    repository interfaces).
-4. [ ] Core ledger use cases (Deposit/Withdraw/Transfer) end to end.
-5. [ ] Idempotency.
-6. [ ] Mock payment provider — async webhooks, configurable misbehavior.
-7. [ ] Event sourcing + replay.
-8. [ ] Reconciliation + pending/settled state machine.
+4. [x] Core ledger use cases (Deposit/Withdraw/Transfer) end to end.
+5. [x] Idempotency.
+6. [x] Mock payment provider — async webhooks, configurable misbehavior.
+7. [x] Event sourcing + replay.
+8. [x] Reconciliation + pending/settled state machine.
 9. [ ] Full observability + VPS deploy.
 
 ## Build log
@@ -211,3 +211,109 @@ Deliberate departures from the house style, because DDD needs them:
 - **No logging inside the domain types.** Logging starts at the
   service and repository layers, where operations actually happen.
 - Tests are deliberately deferred until the project is complete.
+
+### Phase 4 — Core ledger use cases (2026-09-29)
+
+`LedgerService` (`internal/ledger/service.go`) wraps the domain
+constructors with persistence: `CreateAccount`, `GetAccount`,
+`Deposit`/`Withdraw`/`Transfer`. `internal/postgres` implements
+`AccountRepository`/`TransactionRepository` against the real schema —
+`TransactionRepository.Save` writes a transaction and all of its entries
+inside one DB transaction, so a half-written ledger entry can never exist.
+`internal/http/handler.go` is the Echo adapter translating requests to
+service calls and back; no business logic lives there.
+
+Deposits and withdrawals need two sides to balance, so migration 2 seeds a
+fixed `EXTERNAL` account — deposits debit it, withdrawals credit it,
+transfers can never touch it (enforced in the domain, not just by
+convention).
+
+**Bug found after deploying: no overdraft protection.** A transfer or
+withdrawal succeeded even from a zero balance. Fixed with a row lock inside
+`TransactionRepository.Save` — `SELECT ... FOR UPDATE` on the debited
+account, then the balance re-derived with the same `SUM` query
+`GetBalance` uses (as a second statement; Postgres rejects combining
+`FOR UPDATE` with an aggregate in one query), with `SET LOCAL
+lock_timeout = '2s'` so a request can't wait forever behind another. Proven
+under load: 20 concurrent withdrawals of 100 against a balance of 1000 —
+exactly 10 succeeded, balance never went negative.
+
+### Phase 5 — Idempotency (2026-09-29)
+
+Retrying the same request with the same `Idempotency-Key` now returns the
+original result (`200`) instead of creating a second transaction (`201`
+the first time). The `idempotency_key` unique constraint from Phase 2 is
+the entire concurrency mechanism — no app-level locking needed: two
+concurrent identical requests both try to `INSERT`, Postgres serializes
+them and the loser gets a `23505` conflict, which `Save` catches and turns
+into "go fetch what the winner wrote."
+
+**Bug caught in testing, not asked for:** the overdraft check originally
+ran *before* the insert, so retrying an already-successful withdrawal
+after the account's balance had since moved (other activity happened on
+it) could come back `422 insufficient funds` instead of replaying the
+original result. Fixed by moving the `INSERT INTO transactions` first —
+if it hits the duplicate-key conflict, return before ever touching the
+balance; only a genuinely new transaction reaches the overdraft check.
+
+### Phase 6 — Mock payment provider webhooks (2026-10-02)
+
+New bounded context `internal/reconciliation/` (entity, repository
+interfaces, service) — thin for now, just enough to give an incoming
+provider statement a durable, idempotent home. New outbound port
+`ledger.PaymentProviderClient`, implemented over HTTP by
+`internal/providerclient` (domain stays framework-free; the interface
+lives in `ledger`, same dependency-inversion pattern as the repositories).
+
+`cmd/mockprovider` gained `POST /charges` (accepts a reference, amount, and
+an optional `behavior`) plus async webhook delivery after a short random
+delay, simulating four outcomes: `normal`, `duplicate` (delivers twice),
+`missing` (never delivers), `mismatch` (reports a different amount),
+`declined` (reports status `failed`). `Deposit()` calls the provider
+after saving the transaction as `pending` — best-effort: if the provider
+is unreachable, the transaction still exists and stays pending rather than
+the whole API call failing.
+
+Duplicate webhook delivery is handled the same way duplicate idempotency
+keys are — a Postgres `ON CONFLICT (provider_reference) DO NOTHING`, not
+app-level dedup logic.
+
+### Phase 7 — Event sourcing + replay (2026-10-02)
+
+Every `TransactionRepository.Save` now also appends a `transaction.posted`
+event (same DB transaction as the entries, so the log can't drift from
+what was actually written). `GET /admin/replay` rebuilds every account's
+balance purely from the event log and compares it against the live
+balance (summed from `entries`) — proof the log alone is sufficient to
+reconstruct current state.
+
+**Bug caught by the replay check itself:** when Phase 8's reconciliation
+marks a transaction `failed`, that status change wasn't recorded as an
+event — only the original `pending` status was ever in the log. Replay
+had no way to know the transaction later failed, so it kept counting
+entries `GetBalance` correctly excludes (`status <> 'failed'`), and
+`all_match` came back `false`. Fixed by making status transitions their
+own events (`transaction.settled` / `transaction.failed`, written
+atomically with the status `UPDATE`) and replaying in two passes: first
+reconstruct each transaction's latest status from the full event stream,
+then sum entries only for transactions not left `failed` — the same rule
+`GetBalance` applies, now derived purely from events instead of asked of
+the live table.
+
+### Phase 8 — Reconciliation + state machine (2026-10-02)
+
+`reconciliation.Service.Reconcile` (triggered via `POST /admin/reconcile`)
+compares every pending deposit older than a grace period
+(`RECONCILIATION_GRACE_PERIOD`, default 30s) against what the provider
+reported for the same reference: matching amount + `settled` → the
+transaction is marked settled; matching amount + any other status →
+marked failed; wrong amount → flagged as an `amount_mismatch`
+discrepancy, left pending for a human; no statement at all yet → flagged
+as `missing_statement`, also left pending. Discrepancy inserts are
+conditional (`WHERE NOT EXISTS ...`) so re-running `Reconcile` never piles
+up duplicate unresolved rows for the same already-flagged problem.
+
+Known, deliberate gaps: only deposits are reconciled (withdrawals were
+never wired to the provider in Phase 6); a statement line matching no
+transaction at all ("orphan" webhook) isn't checked — only the
+ledger→provider direction is, not the reverse.
