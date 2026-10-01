@@ -107,6 +107,17 @@ func (t *Transaction) verifyBalanced() error {
 
 }
 
+func RehydrateTransaction(id uuid.UUID, idempotencyKey, txType string, status TransactionStatus, entries []Entry, createdAt time.Time) *Transaction {
+	return &Transaction{
+		id:             id,
+		idempotencyKey: idempotencyKey,
+		txType:         txType,
+		status:         status,
+		entries:        append([]Entry(nil), entries...),
+		createdAt:      createdAt,
+	}
+}
+
 func (t *Transaction) ID() uuid.UUID             { return t.id }
 func (t *Transaction) IdempotencyKey() string    { return t.idempotencyKey }
 func (t *Transaction) Type() string              { return t.txType }

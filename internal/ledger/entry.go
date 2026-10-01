@@ -21,6 +21,11 @@ func newEntry(transactionID, accountID uuid.UUID, amount Money) Entry {
 	}
 }
 
+// rehydrateEntry rebuilds an Entry from data already stored, skipping the invariant checks - the row was validated when it was first inserted
+func RehydrateEntry(id, transactionID, accountID uuid.UUID, amount Money) Entry {
+	return Entry{id: id, transactionID: transactionID, accountID: accountID, amount: amount}
+}
+
 func (e Entry) ID() uuid.UUID            { return e.id }
 func (e Entry) TransactionID() uuid.UUID { return e.transactionID }
 func (e Entry) AccountID() uuid.UUID     { return e.accountID }

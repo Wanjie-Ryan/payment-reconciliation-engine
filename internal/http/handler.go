@@ -113,6 +113,16 @@ func idempotencyKey(c echo.Context) string {
 	return c.Request().Header.Get("Idempotency-Key")
 }
 
+// statusFor picks the response status for a post: 201 for a newly created
+// transaction, 200 when this idempotency key had already been processed and
+// the body is the original result being replayed back.
+func statusFor(replayed bool) int {
+	if replayed {
+		return http.StatusOK
+	}
+	return http.StatusCreated
+}
+
 func (h *Handler) createAccount(c echo.Context) error {
 
 	var req CreateAccountRequest
@@ -164,13 +174,14 @@ func (h *Handler) deposit(c echo.Context) error {
 		return respondError(c, err)
 	}
 
-	txn, err := h.ledger.Deposit(c.Request().Context(), req.AccountID, amount, idempotencyKey(c))
+	txn, replayed, err := h.ledger.Deposit(c.Request().Context(), req.AccountID, amount, idempotencyKey(c))
 
 	if err != nil {
 		return respondError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, toTransactionResponse(txn))
+	// return c.JSON(http.StatusCreated, toTransactionResponse(txn))
+	return c.JSON(statusFor(replayed), toTransactionResponse(txn))
 
 }
 
@@ -187,13 +198,14 @@ func (h *Handler) withdraw(c echo.Context) error {
 		return respondError(c, err)
 	}
 
-	txn, err := h.ledger.Withdraw(c.Request().Context(), req.AccountID, amount, idempotencyKey(c))
+	txn, replayed, err := h.ledger.Withdraw(c.Request().Context(), req.AccountID, amount, idempotencyKey(c))
 
 	if err != nil {
 		return respondError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, toTransactionResponse(txn))
+	// return c.JSON(http.StatusCreated, toTransactionResponse(txn))
+	return c.JSON(statusFor(replayed), toTransactionResponse(txn))
 
 }
 
@@ -210,12 +222,13 @@ func (h *Handler) transfer(c echo.Context) error {
 		return respondError(c, err)
 	}
 
-	txn, err := h.ledger.Transfer(c.Request().Context(), req.FromAccountID, req.ToAccountID, amount, idempotencyKey(c))
+	txn, replayed, err := h.ledger.Transfer(c.Request().Context(), req.FromAccountID, req.ToAccountID, amount, idempotencyKey(c))
 
 	if err != nil {
 		return respondError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, toTransactionResponse(txn))
+	// return c.JSON(http.StatusCreated, toTransactionResponse(txn))
+	return c.JSON(statusFor(replayed), toTransactionResponse(txn))
 
 }

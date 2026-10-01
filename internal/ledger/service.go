@@ -85,43 +85,43 @@ func (s *LedgerService) GetAccount(ctx context.Context, id uuid.UUID) (*Account,
 
 }
 
-func (s *LedgerService) Transfer(ctx context.Context, fromID, toID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
+func (s *LedgerService) Transfer(ctx context.Context, fromID, toID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, bool, error) {
 	txn, err := NewTransfer(fromID, toID, amount, idempotencyKey)
 
 	if err != nil {
 		logFailure(ctx, "invalid Transfer", err, logrus.Fields{
 			"from_account_id": fromID, "to_account_ID": toID, "idempotency_key": idempotencyKey,
 		})
-		return nil, err
+		return nil, false, err
 	}
 
 	return s.post(ctx, txn)
 
 }
 
-func (s *LedgerService) Deposit(ctx context.Context, toID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
+func (s *LedgerService) Deposit(ctx context.Context, toID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, bool, error) {
 	txn, err := NewDeposit(toID, amount, idempotencyKey)
 	if err != nil {
 		logFailure(ctx, "invalid deposit", err, logrus.Fields{
 			"account_id": toID, "idempotency_key": idempotencyKey,
 		})
-		return nil, err
+		return nil, false, err
 	}
 	return s.post(ctx, txn)
 }
 
-func (s *LedgerService) Withdraw(ctx context.Context, fromID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, error) {
+func (s *LedgerService) Withdraw(ctx context.Context, fromID uuid.UUID, amount Money, idempotencyKey string) (*Transaction, bool, error) {
 	txn, err := NewWithdrawal(fromID, amount, idempotencyKey)
 	if err != nil {
 		logFailure(ctx, "invalid withdrawal", err, logrus.Fields{
 			"account_id": fromID, "idempotency_key": idempotencyKey,
 		})
-		return nil, err
+		return nil, false, err
 	}
 	return s.post(ctx, txn)
 }
 
-func (s *LedgerService) post(ctx context.Context, txn *Transaction) (*Transaction, error) {
+func (s *LedgerService) post(ctx context.Context, txn *Transaction) (*Transaction, bool, error) {
 	fields := logrus.Fields{
 		"transaction_id":  txn.ID(),
 		"type":            txn.Type(),
@@ -132,7 +132,7 @@ func (s *LedgerService) post(ctx context.Context, txn *Transaction) (*Transactio
 		account, err := s.accounts.FindByID(ctx, e.AccountID())
 		if err != nil {
 			logFailure(ctx, "failed to load account", err, fields)
-			return nil, err
+			return nil, false, err
 		}
 
 		if account.Currency() != e.Amount().Currency() {
@@ -140,20 +140,37 @@ func (s *LedgerService) post(ctx context.Context, txn *Transaction) (*Transactio
 			err := fmt.Errorf("%w: account %s holds %s but the transaction is in %s", ErrInvalid, account.ID(), account.Currency(), e.Amount().Currency())
 
 			logFailure(ctx, "currenct mismatch", err, fields)
-			return nil, err
+			return nil, false, err
 
 		}
 
 	}
 
 	if err := s.transactions.Save(ctx, txn); err != nil {
+
+		if errors.Is(err, ErrDuplicateIdempotencyKey) {
+			existing, ferr := s.transactions.FindByIdempotencyKey(ctx, txn.IdempotencyKey())
+
+			if ferr != nil {
+				logFailure(ctx, "failed to load existing transaction for idempotent replay", ferr, fields)
+				return nil, false, ferr
+			}
+
+			fields["description"] = "idempotent replay"
+			fields["existing_transaction_id"] = existing.ID()
+			logrus.WithContext(ctx).WithFields(fields).Info("idempotent replay")
+			return existing, true, nil
+
+		}
+
 		logFailure(ctx, "failed to save transaction", err, fields)
-		return nil, err
+		return nil, false, err
+
 	}
 
 	fields["description"] = "transaction posted"
 	fields["status"] = txn.Status()
 	logrus.WithContext(ctx).WithFields(fields).Info("transaction posted")
-	return txn, nil
+	return txn, false, nil
 
 }
